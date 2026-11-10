@@ -1,0 +1,6 @@
+.git
+.github
+app
+gradle.properties
+*.apk
+*.zip
