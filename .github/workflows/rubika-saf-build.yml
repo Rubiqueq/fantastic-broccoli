@@ -1,0 +1,128 @@
+name: Build NEW Rubika SAF APK from pinned ready source
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compile-new-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned original READY SOURCE, not the existing APK
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/sinicablekaveh-create/MessengerQueueSkip.git source
+          git -C source checkout 8d13ff6ccff1e3c756caba92e7fef400a1edd9b7
+          test -s source/app/build.gradle.kts
+
+      - name: New Android package ID and distinct version
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("source/app/build.gradle.kts")
+          s=p.read_text(encoding="utf-8")
+          changes={
+            'versionCode = 33':'versionCode = 1',
+            'versionName = "5.0.5"':'versionName = "1.0.0"',
+            'applicationId = "com.sinicable.threeib.rubika"':'applicationId = "com.rubiqueq.rubikasaf"',
+            'manifestPlaceholders["appLabel"] = "THREE IB • Rubika"':'manifestPlaceholders["appLabel"] = "Rubika SAF"',
+          }
+          for old,new in changes.items():
+            assert s.count(old)==1, "Unexpected source version: "+old
+            s=s.replace(old,new)
+          p.write_text(s,encoding="utf-8")
+          PY
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.9'
+          cache: false
+
+      - name: Build GoOmni Rubika library from original Go SOURCE
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/mimalef70/goomni.git goomni
+          git -C goomni checkout a49bd704ef513ff70269dcea985f486fa0a6d1a7
+          git -C goomni apply "$GITHUB_WORKSPACE/source/tools/goomni-2.4.1-android-media.patch"
+          (
+            cd goomni/src
+            go test -tags purego ./infrastructure/mediafile
+            CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags purego -trimpath -o "$GITHUB_WORKSPACE/source/app/src/main/jniLibs/arm64-v8a/libgoomni.so" .
+          )
+          bash source/tools/test-rubika-runtime-contract.sh "$GITHUB_WORKSPACE/goomni"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Verify ready source contracts
+        run: |
+          cd source
+          bash tools/test-recipient-import.sh
+          bash tools/test-direct-queue-contract.sh
+
+      - name: COMPILE brand-new APK from Java and Go source
+        run: |
+          cd source
+          gradle :app:assembleRubikaDebug --no-daemon --stacktrace
+
+      - name: Check independent package ID and signature
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp source/app/build/outputs/apk/rubika/debug/app-rubika-debug.apk dist/Rubika-SAF-NEW-v1.0.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Rubika-SAF-NEW-v1.0.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/Rubika-SAF-NEW-v1.0.0.apk > dist/apk-metadata.txt
+          grep -Fq "package: name='com.rubiqueq.rubikasaf'" dist/apk-metadata.txt
+          grep -Fq "versionName='1.0.0'" dist/apk-metadata.txt
+          grep -Fq "launchable-activity:" dist/apk-metadata.txt
+          (cd dist && sha256sum Rubika-SAF-NEW-v1.0.0.apk > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+
+      - name: Package ready source and reproducible source edits
+        run: |
+          set -euo pipefail
+          git -C source archive --format=zip --prefix=Rubika-SAF-source/ HEAD -o "$GITHUB_WORKSPACE/dist/Rubika-SAF-SOURCE-v1.0.0.zip"
+          git -C source diff > dist/new-package-changes.patch
+          test -s dist/new-package-changes.patch
+          zip -q -j dist/Rubika-SAF-SOURCE-v1.0.0.zip dist/new-package-changes.patch
+          printf '%s\n' 'Fresh Gradle APK compilation from pinned Java and Go source.' 'New independent package: com.rubiqueq.rubikasaf' 'Temporary debug signature, NOT production signed.' 'OTP login and real message delivery NOT yet verified on owner device.' > dist/BUILD-INFO.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rubika-SAF-NEW-APK-SOURCE
+          path: dist/
+          retention-days: 30
+
+      - name: Publish fresh APK and matching source on GitHub Releases
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rubika-saf-new-v1.0.0
+          name: Rubika SAF NEW v1.0.0 - freshly compiled
+          prerelease: true
+          body: 'NEW independent app from pinned Java and Go sources, not an uploaded old APK. Debug-signed, live account sending unverified.'
+          files: |
+            dist/Rubika-SAF-NEW-v1.0.0.apk
+            dist/Rubika-SAF-SOURCE-v1.0.0.zip
+            dist/BUILD-INFO.txt
+            dist/SHA256SUMS.txt
+            dist/apk-metadata.txt
+            dist/new-package-changes.patch
