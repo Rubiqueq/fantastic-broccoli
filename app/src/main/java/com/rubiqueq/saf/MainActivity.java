@@ -28,7 +28,7 @@ public final class MainActivity extends Activity {
     scroll.addView(layout);
     setContentView(scroll);
     TextView title=new TextView(this);title.setText("Rubika SAF — نسخه مستقل 1.0.0");title.setTextSize(23);title.setGravity(Gravity.CENTER);layout.addView(title);
-    label("آدرس سرور اختصاصی HTTPS"); apiUrl=edit("https://YOUR-SERVER.up.railway.app",false);
+    label("آدرس سرور اختصاصی HTTPS"); apiUrl=edit("https://rubika-saf-go-engine-production.up.railway.app",false); apiUrl.setText("https://rubika-saf-go-engine-production.up.railway.app");
     label("کلید دسترسی سرور (از Railway)"); apiKey=edit("API Key",true);
     label("شماره حساب شخصی روبیکا");phone=edit("09xxxxxxxxx",false);
     label("رمز دو مرحله‌ای (در صورت نیاز)");password=edit("2FA اختیاری",true);

@@ -14,3 +14,5 @@ The Go server imports the downloaded original Rubingo library stored at `server/
 
 ## Open source credits
 Rubingo by FARSHAD nobody (2026), MIT license; upstream commit `39f780813e558f390a9404964e1d9ec80748e66f` (see `server/RUBINGO_LICENSE.txt`).
+
+Backend HTTPS endpoint: https://rubika-saf-go-engine-production.up.railway.app (live /health). The Android app requires a private API_KEY entered in the UI; read it from the Railway service variables. Never place this key in public GitHub or APK source.
