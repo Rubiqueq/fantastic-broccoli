@@ -1,0 +1,67 @@
+name: Rubika SAF RC2 - Build Fresh Sources, Test and Archive
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Verify pinned source, never copy a previous APK
+        run: |
+          set -euo pipefail
+          test ! -d source
+          ! find . -type f -name '*.apk' | grep .
+          bash scripts/fetch_rubingo_source.sh
+          test -s server/rubingo/rubingo.go
+          test -s server/RUBINGO_LICENSE.txt
+          grep -Fq 'MIT License' server/RUBINGO_LICENSE.txt
+      - name: Go source tests with race detector
+        run: |
+          cd server
+          go mod tidy
+          go test -race -count=1 ./...
+          go vet ./...
+          go build -trimpath -o /tmp/rubika-saf-backend .
+      - name: Install Android SDK 35
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Compile NEW APK from Java sources
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Confirm signature, package and build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/RubikaSAF-Queue-v1.2.0-rc2.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/RubikaSAF-Queue-v1.2.0-rc2.apk > dist/signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/RubikaSAF-Queue-v1.2.0-rc2.apk > dist/metadata.txt
+          grep -Fq "package: name='com.rubiqueq.saf.queue'" dist/metadata.txt
+          grep -Fq "versionName='1.2.0-rc2'" dist/metadata.txt
+          grep -Fq 'launchable-activity:' dist/metadata.txt
+          git archive --format=zip --prefix=RubikaSAF-v1.2.0-rc2/ HEAD > dist/RubikaSAF-RC2-SOURCE.zip
+          (cd dist && sha256sum *.apk *.zip > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+      - name: Upload development build (not verified production release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: RubikaSAF-v1.2.0-rc2-UNVERIFIED
+          path: dist/
+          retention-days: 30
