@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -131,7 +132,7 @@ func main() {
 		}
 		app.challenge = nil
 		app.authenticated = false
-		client, err := rubingo.NewClient("rubika_saf", rubingo.WithSessionCallback(func(rubingo.SessionData) {}))
+		client, err := rubingo.NewClient(filepath.Join(queueDataDir(), "rubika_saf"))
 		if err != nil {
 			fail(w, 502, "client_init_failed")
 			return
@@ -202,6 +203,7 @@ func main() {
 	if err := attachQueueEndpoints(mux); err != nil {
 		log.Fatal(err)
 	}
+	go restoreSession()
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
